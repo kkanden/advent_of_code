@@ -1,4 +1,4 @@
-from typing import NamedTuple, NewType
+from typing import NamedTuple
 import numpy as np
 from dataclasses import dataclass
 from enum import IntEnum, auto
@@ -31,11 +31,14 @@ class Map:
     guard: Guard
     dim: Point
     obstacles: list[Point]
+    hit_obstacles: list[Point]
     guard_visited_positions: list[Point]
+    guard_directions: list[Direction]
 
     def move_guard(self):
         guard_row, guard_col = self.guard.position
         direction = self.guard.direction
+        self.guard_directions.append(direction)
         match direction:
             case Direction.UP:
                 obstacle_list = [
@@ -44,6 +47,7 @@ class Map:
                     if col == guard_col and row < guard_row
                 ]
                 nearest_obstacle = max(obstacle_list) if len(obstacle_list) else 0
+                self.hit_obstacles.append(Point(row=nearest_obstacle, col=guard_col))
                 self.guard.position = Point(row=nearest_obstacle + 1, col=guard_col)
                 self.guard_visited_positions.extend(
                     Point(row, guard_col)
@@ -60,6 +64,7 @@ class Map:
                 nearest_obstacle = (
                     min(obstacle_list) if len(obstacle_list) else self.dim.row
                 )
+                self.hit_obstacles.append(Point(row=nearest_obstacle, col=guard_col))
                 self.guard.position = Point(row=nearest_obstacle - 1, col=guard_col)
                 self.guard_visited_positions.extend(
                     Point(row, guard_col) for row in range(guard_row, nearest_obstacle)
@@ -73,6 +78,7 @@ class Map:
                 nearest_obstacle = (
                     min(obstacle_list) if len(obstacle_list) else self.dim.col
                 )
+                self.hit_obstacles.append(Point(row=guard_row, col=nearest_obstacle))
                 self.guard.position = Point(row=guard_row, col=nearest_obstacle - 1)
                 self.guard_visited_positions.extend(
                     Point(guard_row, col) for col in range(guard_col, nearest_obstacle)
@@ -84,6 +90,7 @@ class Map:
                     if col < guard_col and row == guard_row
                 ]
                 nearest_obstacle = max(obstacle_list) if len(obstacle_list) else 0
+                self.hit_obstacles.append(Point(row=guard_row, col=nearest_obstacle))
                 self.guard.position = Point(row=guard_row, col=nearest_obstacle + 1)
                 self.guard_visited_positions.extend(
                     Point(guard_row, col)
@@ -135,7 +142,12 @@ def create_map(map_var: np.ndarray) -> Map:
     guard = Guard(Point(guard_row, guard_col), guard_initial_direction)
     obstacles = where_obstacles(map_var)
     map_object = Map(
-        guard, Point(*map_var.shape), obstacles, [Point(guard_row, guard_col)]
+        guard=guard,
+        dim=Point(*map_var.shape),
+        obstacles=obstacles,
+        hit_obstacles=[],
+        guard_visited_positions=[Point(guard_row, guard_col)],
+        guard_directions=[guard_initial_direction],
     )
 
     return map_object
@@ -148,13 +160,68 @@ def run_map(map_var: np.ndarray):
     while is_not_outside_map:
         is_not_outside_map = map.move_guard()
 
+    map.hit_obstacles.append(map.guard.position)
+
     return map
 
 
-if __name__ == "__main__":
+def can_make_loop(first: Point, last: Point, initial_direction: Direction, dim: Point):
+    match initial_direction:
+        case Direction.UP:
+            return last.col < first.col and not first.col == 0
+        case Direction.DOWN:
+            return last.col > first.col and not first.col == dim.col
+        case Direction.RIGHT:
+            return last.row < first.row and not last.row == 0
+        case Direction.LEFT:
+            return last.row > first.row and not last.row == dim.row
+
+
+def insert_obstacle(
+    first: Point, last: Point, initial_direction: Direction, dim: Point
+):
+    if not can_make_loop(first, last, initial_direction, dim):
+        return None
+
+    match initial_direction:
+        case Direction.UP:
+            return Point(row=last.row, col=first.col - 1)
+        case Direction.DOWN:
+            return Point(row=last.row, col=first.col + 1)
+        case Direction.RIGHT:
+            return Point(row=last.row - 1, col=first.col)
+        case Direction.LEFT:
+            return Point(row=last.row + 1, col=first.col)
+
+
+def part1_solution():
     with open("input.txt", "r") as f:
         guard_map: np.ndarray = np.array([list(line.strip()) for line in f])
 
     map = run_map(guard_map)
 
-    print(len(set(map.guard_visited_positions)))
+    return len(set(map.guard_visited_positions))
+
+
+def part2_solution():
+    with open("input.txt", "r") as f:
+        guard_map: np.ndarray = np.array([list(line.strip()) for line in f])
+
+    map = run_map(guard_map)
+    hit_obstacles = map.hit_obstacles
+    guard_directions = map.guard_directions
+    extra_obstacles: list[Point] = []
+
+    for i, (first, direction) in enumerate(zip(hit_obstacles, guard_directions)):
+        if i + 3 > len(hit_obstacles) - 1:
+            break
+        last = hit_obstacles[i + 3]
+        extra_obstacles.append(insert_obstacle(first, last, direction, map.dim))
+
+    return len(set(extra_obstacles)) + 1
+
+
+if __name__ == "__main__":
+    # print(part1_solution())
+
+    print(part2_solution())
